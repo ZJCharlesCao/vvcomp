@@ -33,7 +33,7 @@ def compute_point_cloud_bounds(points):
 
     return [[min_bounds[i], max_bounds[i]] for i in range(3)]
 
-def get_index_and_ranges(root):
+def get_cb(root):
     index_and_ranges = []
 
     def _traverse(node):
