@@ -11,8 +11,8 @@ def get_hevc_files_size(directory: str) -> int:
 
 def calculate_hevc_sizes(base_path: str):
     results = {}
-    for i in range(10, 20):
-        dir_name = f"video{i}"
+    for i in range(0, 2):
+        dir_name = f"iteration_{i}"
         dir_path = os.path.join(base_path, dir_name)
         if os.path.exists(dir_path) and os.path.isdir(dir_path):
             total_size = get_hevc_files_size(dir_path)

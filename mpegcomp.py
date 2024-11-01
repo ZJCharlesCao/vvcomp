@@ -16,11 +16,10 @@ def raw_to_video(input, output_video, width, height, framerate, pixel_format,qp)
         '-video_size', f'{width}x{height}',
         '-framerate', str(framerate),
         '-i', input,
-        '-pix_fmt', 'yuv444p',
+        '-pix_fmt', 'yuv444p12le',
         '-c:v', 'libx265',
+        # '-x265-params', 'lossless=1',
         '-qp', str(qp),
-        # '-preset', 'slow',
-        # '-crf', '18',
         '-y',
         output_video
     ]
@@ -41,8 +40,8 @@ def video_to_raw(input_video, output, pixel_format):
     cmd = [
         'ffmpeg',
         '-i', input_video,
+        '-f', 'rawvideo',
         '-pix_fmt', pixel_format,
-        '-c:v', 'rawvideo',
         '-y',
         output
     ]
@@ -62,7 +61,7 @@ def process_single_file(input_yuv, output_dir, width, height, framerate, pixel_f
     """
     base_name = os.path.splitext(os.path.basename(input_yuv))[0]
     temp_video = os.path.join(output_dir, f"{base_name}_temp.hevc")
-    final_yuv = os.path.join(output_dir, f"{base_name}.rgb")
+    final_yuv = os.path.join(output_dir, f"{base_name}.rgb48le")
 
     if raw_to_video(input_yuv, temp_video, width, height, framerate, pixel_format,qp):
         if video_to_raw(temp_video, final_yuv, pixel_format):

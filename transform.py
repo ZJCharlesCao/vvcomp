@@ -4,7 +4,7 @@ from plyfile import PlyData, PlyElement
 import copy
 import hashlib
 from collections import defaultdict
-from seg import compute_point_cloud_bounds, PointKDTree, get_index_and_ranges
+from seg import compute_point_cloud_bounds, PointKDTree, get_cb
 import torch
 import os
 from glob import glob
@@ -217,46 +217,3 @@ def save_yuv420p_video(yuv_tensor, output_path):
         print(f"Saved video {video_idx} to {video_path}")
     return width, height, num_frames
 
-
-# def read_yuv420p_video(file_path, width, height, num_frames=None):
-#     frame_size = width * height * 3 // 2
-#     with open(file_path, 'rb') as f:
-#         video_data = f.read()
-#
-#     video_tensor = torch.zeros((num_frames, 3, height, width), dtype=torch.float32)
-#
-#     for i in range(num_frames):
-#         frame_data = video_data[i * frame_size:(i + 1) * frame_size]
-#         y_plane = np.frombuffer(frame_data[:width * height], dtype=np.uint8).reshape(height, width)
-#         u_plane = np.frombuffer(frame_data[width * height:width * height + width * height // 4],
-#                                 dtype=np.uint8).reshape(height // 2, width // 2)
-#         v_plane = np.frombuffer(frame_data[width * height + width * height // 4:], dtype=np.uint8).reshape(height // 2,
-#                                                                                                            width // 2)
-#
-#         u_upscaled = np.repeat(np.repeat(u_plane, 2, axis=0), 2, axis=1)
-#         v_upscaled = np.repeat(np.repeat(v_plane, 2, axis=0), 2, axis=1)
-#
-#         video_tensor[i, 0] = torch.from_numpy(y_plane)
-#         video_tensor[i, 1] = torch.from_numpy(u_upscaled)
-#         video_tensor[i, 2] = torch.from_numpy(v_upscaled)
-#
-#     return video_tensor
-#
-#
-# def yuv420p_videos_to_tensor(video_dir, width, height, file_pattern="*.yuv", num_frames=None):
-#     video_files = glob(os.path.join(video_dir, file_pattern))
-#     if not video_files:
-#         raise ValueError(f"No video files found in {video_dir} matching pattern {file_pattern}")
-#
-#     first_video = read_yuv420p_video(video_files[0], width, height, num_frames)
-#     actual_num_frames = first_video.shape[0]
-#
-#     all_videos_tensor = torch.zeros((len(video_files), actual_num_frames, 3, height, width), dtype=torch.float32)
-#
-#     for i, video_file in enumerate(video_files, 1):
-#         print(video_file)
-#         video_tensor = read_yuv420p_video(video_file, width, height, actual_num_frames)
-#         all_videos_tensor[i] = video_tensor
-#
-#
-#     return all_videos_tensor, video_files

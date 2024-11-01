@@ -107,7 +107,7 @@ def update_file_paths(file_paths: list,a) -> list:
     updated_paths = []
     for path in file_paths:
         directory, file_name = os.path.split(path)
-        new_path = os.path.join(directory+'/iteration'+str(a), file_name)
+        new_path = os.path.join(directory+'/iteration_'+str(a), file_name)
         updated_paths.append(new_path)
     return updated_paths
 
@@ -137,8 +137,8 @@ if __name__ == '__main__':
     x_min, x_max = np.min(x), np.max(x)
 
     # 量化：将浮点数映射到 0-255 的 uint8
-    sample_tensor = np.clip(((x - x_min) * 255 / (x_max - x_min)), 0, 255).astype(np.uint8)
-    output_files = process.tensor_to_rgb24_videos(sample_tensor, outdir)
+    sample_tensor = np.clip(((x - x_min) * 65535 / (x_max - x_min)), 0, 65535).astype(np.uint16)
+    output_files = process.tensor_to_rgb48_videos(sample_tensor, outdir)
 
     if output_files:
         # print(f"成功生成 {len(output_files)} 个视频文件:")
@@ -146,18 +146,18 @@ if __name__ == '__main__':
             print(f"  - {file_path}")
 
         # # 将视频转换回张量
-        recovered_tensor = process.rgb24_videos_to_tensor(output_files, frames_per_video, height, width)
+        recovered_tensor_0 = process.rgb48_videos_to_tensor(output_files, frames_per_video, height, width)
         # 反量化：将 uint8 重新映射回原始范围
-        x_reconstructed = recovered_tensor / 255 * (x_max - x_min) + x_min
-        new_attribute1 = transform.extract_attributes(x_reconstructed, codebook, axis, old_attributes)
+        x_reconstructed_0 = recovered_tensor_0 / 65535 * (x_max - x_min) + x_min
+        new_attribute1 = transform.extract_attributes(x_reconstructed_0, codebook, axis, old_attributes)
 
-        for i in range(5, 16):
-            os.makedirs(outdir+'/iteration'+str(i), exist_ok=True)
-            out = outdir+'/iteration'+str(i)
-            os.system(' python /data2/zijian/videocomp/main/mpegcomp.py --input_dir /data2/zijian/videocomp/main/output_videos --output_dir '+out+' --width 150 --height 70 --pattern *.rgb --pixel_format rgb24 --qp '+str(i))
+        for i in range(1, 11):
+            os.makedirs(outdir+'/iteration_'+str(i), exist_ok=True)
+            out = outdir+'/iteration_'+str(i)
+            os.system(' python /data2/zijian/videocomp/main/mpegcomp.py --input_dir /data2/zijian/videocomp/main/output_videos --output_dir '+out+' --width 150 --height 70 --pattern *.rgb48le --pixel_format rgb48le --qp '+str(i))
             new_path = update_file_paths(output_files,i)
-            recovered_tensor = process.rgb24_videos_to_tensor(new_path, frames_per_video, height, width)
-            x_reconstructed = recovered_tensor / 255 * (x_max-x_min) +x_min
+            recovered_tensor = process.rgb48_videos_to_tensor(new_path, frames_per_video, height, width)
+            x_reconstructed = recovered_tensor / 65535 * (x_max-x_min) +x_min
             new_attribute2 = transform.extract_attributes(x_reconstructed, codebook, axis, old_attributes)
             gs.save_ply(new_attribute2, out + "/point_cloud.ply")
         gs.save_ply(new_attribute1, outdir + "/point_cloud_0.ply")
