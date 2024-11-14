@@ -11,43 +11,57 @@ from glob import glob
 from tqdm import tqdm
 
 
-
-
-# def build_video(axis,lis,attibutes,ranges):
-#     result = defaultdict(lambda: {'pixel': [], 'idx': []})
-#     if axis == 0:
-#         # 遍历矩阵
-#         for p, idx in lis:
-#             result[p[0]]['pixel'].append([p[1],p[2]])
-#             result[p[0]]['idx'].append(idx)
-#         pre_tensor = torch.empty(round(48/3),ranges[0][1],3,ranges[1][1],ranges[2][1],dtype=torch.float32)
+# def build_video(axis, pixel_idx_pairs, attributes, ranges):
+#     """
+#     改进的构建视频张量函数
 #
-#     elif axis == 1:
-#         for p, idx in lis:
-#             result[p[1]]['pixel'].append([p[0], p[2]])
-#             result[p[1]]['idx'].append(idx)
-#         pre_tensor = torch.empty(round(48/3),ranges[1][1],3,ranges[0][1],ranges[2][1],dtype=torch.float32)
+#     参数:
+#     axis: int - 处理的轴 (0, 1, 或 2)
+#     pixel_idx_pairs: list of tuples - 像素坐标和索引对的列表
+#     attributes: tensor - 属性张量
+#     ranges: list of tuples - 每个维度的范围
 #
-#     elif axis == 2:
-#         for p, idx in lis:
-#             result[p[2]]['pixel'].append([p[0], p[1]])
-#             result[p[2]]['idx'].append(idx)
-#         pre_tensor = torch.empty(round(48/3),ranges[2][1],3, ranges[0][1],ranges[1][1],dtype=torch.float32)
+#     返回:
+#     torch.Tensor - 构建的视频张量
+#     """
+#     # 确定输出张量的形状
+#     tensor_shapes = {
+#         0: (round(48 / 3), ranges[0][1], 3, ranges[1][1], ranges[2][1]),
+#         1: (round(48 / 3), ranges[1][1], 3, ranges[0][1], ranges[2][1]),
+#         2: (round(48 / 3), ranges[2][1], 3, ranges[0][1], ranges[1][1])
+#     }
 #
+#     # 初始化输出张量
+#     output_tensor = torch.zeros(tensor_shapes[axis], dtype=torch.float32)
 #
-#     for key in result.keys():
-#         for j in range(len(result[key]['idx'])):
-#             mark = attibutes[result[key]['idx'][j]]
-#             for i in range(round(48 / 3)):
-#                 k = torch.tensor(list(mark)[i * 3 + 6:i * 3 + 9])
-#                 pre_tensor[i,key,:,result[key]['pixel'][j][0],result[key]['pixel'][j][1]] = k
-#     return pre_tensor
+#     # 创建映射以优化访问
+#     pixel_map = defaultdict(list)
+#     for p, idx in pixel_idx_pairs:
+#         if axis == 0:
+#             pixel_map[p[0]].append((p[1], p[2], idx))
+#         elif axis == 1:
+#             pixel_map[p[1]].append((p[0], p[2], idx))
+#         else:  # axis == 2
+#             pixel_map[p[2]].append((p[0], p[1], idx))
+#
+#     # 填充张量
+#     time_steps = round(48 / 3)
+#     for key, pixels in pixel_map.items():
+#         for x, y, idx in pixels:
+#             attribute = attributes[idx]
+#             for t in range(time_steps):
+#                 color_values = attribute[t * 3 + 3:t * 3 + 6]
+#                 if axis == 0:
+#                     output_tensor[t, key, :, x, y] = color_values
+#                 elif axis == 1:
+#                     output_tensor[t, key, :, x, y] = color_values
+#                 else:  # axis == 2
+#                     output_tensor[t, key, :, x, y] = color_values
+#
+#     return output_tensor
 
-import torch
-from collections import defaultdict
 
-
-def build_video(axis, pixel_idx_pairs, attributes, ranges):
+def buildVideoTensor(axis, points, attributes, ranges):
     """
     改进的构建视频张量函数
 
@@ -60,15 +74,38 @@ def build_video(axis, pixel_idx_pairs, attributes, ranges):
     返回:
     torch.Tensor - 构建的视频张量
     """
+    #quantize points
+    col_attr = attributes[:, :48]
+    geo_attr = attributes[:, 48:56]
+
     # 确定输出张量的形状
-    tensor_shapes = {
-        0: (round(48 / 3), ranges[0][1], 3, ranges[1][1], ranges[2][1]),
-        1: (round(48 / 3), ranges[1][1], 3, ranges[0][1], ranges[2][1]),
-        2: (round(48 / 3), ranges[2][1], 3, ranges[0][1], ranges[1][1])
+    point_range = {
+        0: [[0, ranges[0][1]], [0, ranges[1][1]], [0, ranges[2][1]]],
+        1: [[0, ranges[1][1]], [0, ranges[0][1]], [0, ranges[2][1]]],
+        2: [[0, ranges[2][1]], [0, ranges[0][1]], [0, ranges[1][1]]]
+    }
+    num_col = round(col_attr.shape[1] / 3)
+    col_tensor_shapes = {
+        0: (num_col, ranges[0][1], 3, ranges[1][1], ranges[2][1]),
+        1: (num_col, ranges[1][1], 3, ranges[0][1], ranges[2][1]),
+        2: (num_col, ranges[2][1], 3, ranges[0][1], ranges[1][1])
+    }
+    num_geo = round(geo_attr.shape[1] / 3)
+    geo_tensor_shapes = {
+        0: (num_geo, ranges[0][1], 3, ranges[1][1], ranges[2][1]),
+        1: (num_geo, ranges[1][1], 3, ranges[0][1], ranges[2][1]),
+        2: (num_geo, ranges[2][1], 3, ranges[0][1], ranges[1][1])
     }
 
     # 初始化输出张量
-    output_tensor = torch.zeros(tensor_shapes[axis], dtype=torch.float32)
+    col_tensor = torch.zeros(col_tensor_shapes[axis])
+    geo_tensor = torch.zeros(geo_tensor_shapes[axis])
+
+    space_range = compute_point_cloud_bounds(points)
+    print(space_range)
+    tree = PointKDTree(points, space_range, point_range[axis])
+    pixel_idx_pairs= get_cb(tree.root)
+
 
     # 创建映射以优化访问
     pixel_map = defaultdict(list)
@@ -81,62 +118,28 @@ def build_video(axis, pixel_idx_pairs, attributes, ranges):
             pixel_map[p[2]].append((p[0], p[1], idx))
 
     # 填充张量
-    time_steps = round(48 / 3)
+
     for key, pixels in pixel_map.items():
         for x, y, idx in pixels:
             attribute = attributes[idx]
-            for t in range(time_steps):
-                color_values = attribute[t * 3 + 3:t * 3 + 6]
-                if axis == 0:
-                    output_tensor[t, key, :, x, y] = color_values
-                elif axis == 1:
-                    output_tensor[t, key, :, x, y] = color_values
-                else:  # axis == 2
-                    output_tensor[t, key, :, x, y] = color_values
+            for t in range(num_col):
+                color_values = attribute[t * 3 :t * 3 + 3]
+                col_tensor[t, key, :, x, y] = color_values
+                if t < num_geo :
+                    if t*3+51 > len(attribute):
+                        geo_values = torch.cat((attribute[t * 3 + 48:],torch.zeros(3-len(attribute[t * 3 + 48:]))))
+                    else:
+                        geo_values = attribute[t * 3 + 48:t * 3 + 51]
+                    geo_tensor[t, key, :, x, y] = geo_values
+    return col_tensor, geo_tensor, pixel_idx_pairs
 
-    return output_tensor
-
-
-# def extract_attributes(tensor, pixel_idx_pairs, axis,old_att):
-#     """
-#     从张量中提取新的属性
-#
-#     参数:
-#     tensor: torch.Tensor - 输入视频张量
-#     pixel_idx_pairs: list of tuples - 像素坐标和索引对的列表
-#     axis: int - 处理的轴 (0, 1, 或 2)
-#
-#     返回:
-#     torch.Tensor - 新的属性张量
-#     """
-#     time_steps, _, channels, *_ = tensor.shape
-#     num_pixels = len(pixel_idx_pairs)
-#
-#     # 初始化输出属性张量 (前6个值预留为0)
-#     output_attributes = old_att
-#
-#     # 创建像素到索引的映射
-#     pixel_to_idx = {tuple(p): i for p, i in pixel_idx_pairs}
-#
-#     # 提取属性
-#     for t in range(time_steps):
-#         for p, idx in tqdm(pixel_idx_pairs):
-#             if axis == 0:
-#                 color_values = tensor[t, p[0], :, p[1], p[2]]
-#             elif axis == 1:
-#                 color_values = tensor[t, p[1], :, p[0], p[2]]
-#             else:  # axis == 2
-#                 color_values = tensor[t, p[2], :, p[0], p[1]]
-#
-#             output_attributes[idx, 6 + t * channels:6 + (t + 1) * channels] = torch.tensor(color_values, dtype=torch.float32)
-#
-#     return output_attributes
 
 def extract_attributes(
-        tensor: torch.Tensor,
+        tensor_c: torch.Tensor,
+        tnesor_g: torch.Tensor,
         pixel_idx_pairs,
         axis: int,
-        old_att: torch.Tensor
+        old_attr: torch.Tensor
 ) -> torch.Tensor:
     """
     使用向量化操作从张量中提取新的属性
@@ -145,12 +148,13 @@ def extract_attributes(
     tensor: shape (time_steps, dim1, 3, dim2, dim3) 的张量
     pixel_idx_pairs: 像素坐标和索引对的列表 [(pixel_coords, idx), ...]
     axis: 处理的轴 (0, 1, 或 2)
-    old_att: 原始属性张量，shape (num_pixels, 6 + time_steps * 3)
+    old_att: 原始属性张量，shape
 
     返回:
     torch.Tensor: 更新后的属性张量
     """
-    time_steps, *dims = tensor.shape
+    time_steps_c, *dims = tensor_c.shape
+    time_steps_g, *dims = tnesor_g.shape
     num_pixels = len(pixel_idx_pairs)
 
     # 将pixel_idx_pairs转换为张量形式以便批处理
@@ -158,7 +162,8 @@ def extract_attributes(
     indices = torch.tensor([p[1] for p in pixel_idx_pairs])
 
     # 创建输出张量，复制原始属性
-    output_attributes = old_att.clone()
+    output_attributes = old_attr.clone()
+    output_attributes = torch.cat((output_attributes, torch.zeros((output_attributes.shape[0], 1))),dim=1)
     # output_attributes = torch.zeros((num_pixels, 6 + time_steps * 3), dtype=torch.float32)
     # 根据不同的轴创建索引张量
     if axis == 0:
@@ -175,45 +180,18 @@ def extract_attributes(
         width_indices = pixels[:, 1]
 
     # 为每个时间步骤提取颜色值
-    for t in tqdm(range(time_steps)):
+    for t in tqdm(range(time_steps_c)):
         # 使用高级索引一次性提取所有像素的颜色值
-        color_values = tensor[t, batch_indices, :, height_indices, width_indices]
+        color_values = tensor_c[t, batch_indices, :, height_indices, width_indices]
 
         # 更新输出属性张量
-        output_attributes[indices, 3 + t * 3:3 + (t + 1) * 3] = torch.tensor(color_values,dtype=torch.float32)
+        output_attributes[indices, 3 + t * 3:3 + (t + 1) * 3] = torch.tensor(color_values.astype(np.int32),dtype=torch.float32)
 
-    return output_attributes
+        if t < time_steps_g:
+            # 使用高级索引一次性提取所有像素的颜色值
+            geo_values = tnesor_g[t, batch_indices, :, height_indices, width_indices]
+            # 更新输出属性张量
+            output_attributes[indices, 51 + t * 3:51 + (t + 1) * 3] = torch.tensor(geo_values.astype(np.int32),dtype=torch.float32)
 
-def save_yuv420p_video(yuv_tensor, output_path):
-    """
-    Save YUV tensor data as a raw YUV420p video file.
-
-    Args:
-    yuv_tensor (torch.Tensor): 5D tensor in YUV format with shape
-                               (num_videos, num_frames, 3, height, width)
-    output_path (str): Base path to save the output videos
-    """
-    num_videos, num_frames, _, height, width  = yuv_tensor.shape
-
-    # Ensure output directory exists
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-
-    for video_idx in range(num_videos):
-        video_path = f"{output_path}_{video_idx}.yuv"
-        with open(video_path, 'wb') as f:
-            for frame_idx in range(num_frames):
-                # Extract Y plane
-                y_plane = yuv_tensor[video_idx, frame_idx, 0].numpy()
-                # Extract U plane and ensure correct size (height and width are half of Y)
-                u_plane = yuv_tensor[video_idx, frame_idx, 1, ::2, ::2].numpy()
-                # Extract V plane and ensure correct size (height and width are half of Y)
-                v_plane = yuv_tensor[video_idx, frame_idx, 2, ::2, ::2].numpy()
-
-                # Write data in YUV420p format
-                f.write(y_plane.tobytes())
-                f.write(u_plane.tobytes())
-                f.write(v_plane.tobytes())
-
-        print(f"Saved video {video_idx} to {video_path}")
-    return width, height, num_frames
+    return output_attributes[:, :59]
 

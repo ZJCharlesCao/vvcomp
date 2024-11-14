@@ -1,6 +1,7 @@
-import process,seg
+from scipy.constants import point
+
+import process, transform, mpegcomp
 import os
-import transform
 import torch
 import numpy as np
 from plyfile import PlyData, PlyElement
@@ -80,11 +81,17 @@ class gaussianmodel:
 
         xyz = self._xyz.numpy()
         normals = np.zeros_like(xyz)
+
+        # opacities = self._opacity.numpy()
+        # scale = self._scaling.numpy()
+        # rotation = self._rotation.numpy()
+        # f_dc =self._features_dc.transpose(1, 2).flatten(start_dim=1).numpy()
+        # f_rest = self._features_rest.transpose(1, 2).flatten(start_dim=1).numpy()
         f_dc = tensor[:, 3:6].numpy()
         f_rest = tensor[:, 6:6 + 3 * (3 + 1) ** 2 - 3].numpy()
-        opacities = self._opacity.numpy()
-        scale = self._scaling.numpy()
-        rotation = self._rotation.numpy()
+        opacities = tensor[:, 6 + 3 * (3 + 1) ** 2 - 3:6 + 3 * (3 + 1) ** 2 - 3 + 1].numpy()
+        scale = tensor[:, 6 + 3 * (3 + 1) ** 2 - 2:6 + 3 * (3 + 1) ** 2 +1].numpy()
+        rotation = tensor[:, 6 + 3 * (3 + 1) ** 2 + 1:6 + 3 * (3 + 1) ** 2 + 5].numpy()
 
         dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
 
@@ -106,60 +113,96 @@ def update_file_paths(file_paths: list,a) -> list:
     """
     updated_paths = []
     for path in file_paths:
-        directory, file_name = os.path.split(path)
-        new_path = os.path.join(directory+'/iteration_'+str(a), file_name)
+        last_slash_index = path.rfind('/')
+        # 在最后一个斜杠之前寻找倒数第二个斜杠的位置
+        second_last_slash_index = path.rfind('/', 0, last_slash_index)
+        dir, filename = path[:second_last_slash_index], path[second_last_slash_index + 1:]
+        new_path = os.path.join(dir+'/iteration_'+str(a), filename)
         updated_paths.append(new_path)
     return updated_paths
+
 
 if __name__ == '__main__':
     axis = 0
     num_videos = 16
     frames_per_video = 160
     height, width = 70, 150
-    outdir = '/data2/zijian/videocomp/main/output_videos'
+    outdir = '/data2/zijian/videocomp/main/output'
     inputply = '/data2/zijian/videocomp/main/point_cloud.ply'
 
     data = PlyData.read(inputply)
-    points = np.vstack([data["vertex"]["x"], data["vertex"]["y"], data["vertex"]["z"]]).T
-    # old_attributes = np.array(data["vertex"]).T
+    # points = np.vstack([data["vertex"]["x"], data["vertex"]["y"], data["vertex"]["z"]]).T
     gs = gaussianmodel()
+
     old_attributes = gs.load_ply(inputply)
+    ex_attr1 = old_attributes[:, 6:15]
+    xyz = old_attributes[:, 0:3]
+    # ex_attr = old_attributes[:, 3:]
+    # # 获取张量中的最小值和最大值
+    # min_a, max_a = torch.min(ex_attr).numpy(), torch.max(ex_attr).numpy()
+    # print(max_a, min_a)
+    # q_attr = torch.clamp(((ex_attr - min_a) * 65535 / (max_a - min_a)), 0, 65535).to(torch.int32)
+    ex_attr_f = old_attributes[:, 3:6]
+    ex_attr_rest = old_attributes[:, 6:6 + 3 * (3 + 1) ** 2 - 3]
+    ex_attr_opa, ex_attr_scale, ex_attr_rot = old_attributes[:, 6 + 3 * (3 + 1) ** 2 - 3:6 + 3 * (3 + 1) ** 2 - 2], old_attributes[:, 6 + 3 * (3 + 1) ** 2 - 2:6 + 3 * (3 + 1) ** 2 + 1], old_attributes[:, 6 + 3 * (3 + 1) ** 2 + 1:6 + 3 * (3 + 1) ** 2 + 5]
 
-    space_range = [[0, 160], [0, 70], [0, 150]]
-    point_range = transform.compute_point_cloud_bounds(points)
-    print(point_range)
-    tree = seg.PointKDTree(points, point_range, space_range)
-    codebook = seg.get_cb(tree.root)
-    videobook = transform.build_video(axis, codebook, old_attributes, space_range)
-    # torch.save(videobook, 'output/video.pt')
-    # x = torch.load('output/video.pt').numpy()
-    x = videobook.numpy()
-    x_min, x_max = np.min(x), np.max(x)
+    min_a, max_a = torch.min(ex_attr_f).numpy(), torch.max(ex_attr_f).numpy()
+    q_attr_f = torch.clamp(((ex_attr_f - min_a) * 65535 / (max_a - min_a)), 0, 65535).to(torch.int32)
+    min_b, max_b = torch.min(ex_attr_rest).numpy(), torch.max(ex_attr_rest).numpy()
+    q_attr_rest = torch.clamp(((ex_attr_rest - min_b) * 65535 / (max_b - min_b)), 0, 65535).to(torch.int32)
+    min_c, max_c = torch.min(ex_attr_opa).numpy(), torch.max(ex_attr_opa).numpy()
+    q_attr_opa = torch.clamp(((ex_attr_opa - min_c) * 65535 / (max_c - min_c)), 0, 65535).to(torch.int32)
+    min_d, max_d = torch.min(ex_attr_scale).numpy(), torch.max(ex_attr_scale).numpy()
+    q_attr_scale = torch.clamp(((ex_attr_scale - min_d) * 65535 / (max_d - min_d)), 0, 65535).to(torch.int32)
+    min_e, max_e = torch.min(ex_attr_rot).numpy(), torch.max(ex_attr_rot).numpy()
+    q_attr_rot = torch.clamp(((ex_attr_rot - min_e) * 65535 / (max_e - min_e)), 0, 65535).to(torch.int32)
+    q_attr = torch.cat([q_attr_f,q_attr_rest, q_attr_opa, q_attr_scale, q_attr_rot], dim=1)
 
-    # 量化：将浮点数映射到 0-255 的 uint8
-    sample_tensor = np.clip(((x - x_min) * 65535 / (x_max - x_min)), 0, 65535).astype(np.uint16)
-    output_files = process.tensor_to_rgb48_videos(sample_tensor, outdir)
+    space = [[0, 160], [0, 70], [0, 150]]
+    colorbook, geobook, codebook = transform.buildVideoTensor(axis, xyz, q_attr, space)
+    output_files_col = process.tensor_to_rgb48(colorbook.numpy(), outdir+'/color')
+    output_files_geo = process.tensor_to_rgb48(geobook.numpy(), outdir+'/geo')
 
-    if output_files:
-        # print(f"成功生成 {len(output_files)} 个视频文件:")
-        for file_path in output_files:
-            print(f"  - {file_path}")
-
+    if output_files_col is not None and output_files_geo is not None:
         # # 将视频转换回张量
-        recovered_tensor_0 = process.rgb48_videos_to_tensor(output_files, frames_per_video, height, width)
-        # 反量化：将 uint8 重新映射回原始范围
-        x_reconstructed_0 = recovered_tensor_0 / 65535 * (x_max - x_min) + x_min
-        new_attribute1 = transform.extract_attributes(x_reconstructed_0, codebook, axis, old_attributes)
+        recovered_tensor_col = process.rgb48_videos_to_tensor(output_files_col, frames_per_video, height, width)
+        recovered_tensor_geo = process.rgb48_videos_to_tensor(output_files_geo, frames_per_video, height, width)
 
-        for i in range(1, 11):
-            os.makedirs(outdir+'/iteration_'+str(i), exist_ok=True)
+        # # 反量化：将 uint8 重新映射回原始范围
+        # reconstructed_col = recovered_tensor_col / 65535 * (max_a - min_a) + min_a
+        # reconstructed_geo = recovered_tensor_geo / 65535 * (max_a - min_a) + min_a
+
+        # new_attributes = transform.extract_attributes(reconstructed_col, reconstructed_geo, codebook, axis, old_attributes)
+        new_attributes = transform.extract_attributes(recovered_tensor_col, recovered_tensor_geo, codebook, axis, old_attributes)
+        new_attributes[:, 3:6] = new_attributes[:, 3:6] * (max_a - min_a) / 65535 + min_a
+        new_attributes[:, 6:6 + 3 * (3 + 1) ** 2 - 3] = new_attributes[:, 6:6 + 3 * (3 + 1) ** 2 - 3] * (max_b - min_b) / 65535 + min_b
+        new_attributes[:, 6 + 3 * (3 + 1) ** 2 - 3:6 + 3 * (3 + 1) ** 2 - 2] = new_attributes[:, 6 + 3 * (3 + 1) ** 2 - 3:6 + 3 * (3 + 1) ** 2 - 2] * (max_c - min_c) / 65535 + min_c
+        new_attributes[:, 6 + 3 * (3 + 1) ** 2 - 2:6 + 3 * (3 + 1) ** 2 + 1] = new_attributes[:, 6 + 3 * (3 + 1) ** 2 - 2:6 + 3 * (3 + 1) ** 2 + 1] * (max_d - min_d) / 65535 + min_d
+        new_attributes[:, 6 + 3 * (3 + 1) ** 2 + 1:6 + 3 * (3 + 1) ** 2 + 5] = new_attributes[:, 6 + 3 * (3 + 1) ** 2 + 1:6 + 3 * (3 + 1) ** 2 + 5] * (max_e - min_e) / 65535 + min_e
+
+        gs.save_ply(new_attributes, outdir + "/point_cloud_0.ply")
+
+        for i in range(10, 20, 2):
             out = outdir+'/iteration_'+str(i)
-            os.system(' python /data2/zijian/videocomp/main/mpegcomp.py --input_dir /data2/zijian/videocomp/main/output_videos --output_dir '+out+' --width 150 --height 70 --pattern *.rgb48le --pixel_format rgb48le --qp '+str(i))
-            new_path = update_file_paths(output_files,i)
-            recovered_tensor = process.rgb48_videos_to_tensor(new_path, frames_per_video, height, width)
-            x_reconstructed = recovered_tensor / 65535 * (x_max-x_min) +x_min
-            new_attribute2 = transform.extract_attributes(x_reconstructed, codebook, axis, old_attributes)
-            gs.save_ply(new_attribute2, out + "/point_cloud.ply")
-        gs.save_ply(new_attribute1, outdir + "/point_cloud_0.ply")
+            os.makedirs(out, exist_ok=True)
+            mpegcomp.process_files(input_dir=outdir+'/color', output_dir=out+'/color', qp=i)
+            mpegcomp.process_files(input_dir=outdir+'/geo', output_dir=out+'/geo', qp=i)
+            # os.system(' python /data2/zijian/videocomp/main/mpegcomp.py --input_dir /data2/zijian/videocomp/main/output_videos --output_dir '+out+' --width 150 --height 70 --pattern *.rgb48le --pixel_format rgb48le --qp '+str(i))
+
+            new_path_c = update_file_paths(output_files_col,i)
+            new_path_g = update_file_paths(output_files_geo,i)
+
+            compressed_tensor_col = process.rgb48_videos_to_tensor(new_path_c, frames_per_video, height, width)
+            compressed_tensor_geo = process.rgb48_videos_to_tensor(new_path_g, frames_per_video, height, width)
+
+            compressed_attributes = transform.extract_attributes(compressed_tensor_col,compressed_tensor_geo, codebook, axis, old_attributes)
+            compressed_attributes[:, 3:6] = compressed_attributes[:, 3:6] * (max_a - min_a) / 65535 + min_a
+            compressed_attributes[:, 6:6 + 3 * (3 + 1) ** 2 - 3] = compressed_attributes[:, 6:6 + 3 * (3 + 1) ** 2 - 3] * (max_b - min_b) / 65535 + min_b
+            compressed_attributes[:, 6 + 3 * (3 + 1) ** 2 - 3:6 + 3 * (3 + 1) ** 2 - 2] = compressed_attributes[:, 6 + 3 * (3 + 1) ** 2 - 3:6 + 3 * (3 + 1) ** 2 - 2] * (max_c - min_c) / 65535 + min_c
+            compressed_attributes[:, 6 + 3 * (3 + 1) ** 2 - 2:6 + 3 * (3 + 1) ** 2 + 1] = compressed_attributes[:, 6 + 3 * (3 + 1) ** 2 - 2:6 + 3 * (3 + 1) ** 2 + 1] * (max_d - min_d) / 65535 + min_d
+            compressed_attributes[:, 6 + 3 * (3 + 1) ** 2 + 1:6 + 3 * (3 + 1) ** 2 + 5] = compressed_attributes[:, 6 + 3 * (3 + 1) ** 2 + 1:6 + 3 * (3 + 1) ** 2 + 5] * (max_e - min_e) / 65535 + min_e
+            ex_attr2 = compressed_attributes[:, 6:15]
+            gs.save_ply(compressed_attributes, out + "/point_cloud.ply")
+
 
     # print(x_reconstructed)

@@ -46,18 +46,27 @@ def get_cb(root):
     _traverse(root)
     return index_and_ranges
 
+# def process_list(input_list):
+#     result = []
+#     for sublist in input_list:
+#         if len(sublist) == 2:
+#             a, b = sublist
+#             if b > a + 1:
+#                 result.append(int((a + b) / 2))
+#             else:
+#                 result.append(a)
+#         else:
+#             # 处理子列表不是两个元素的情况
+#             result.append(sublist[-1])
+#     return result
 def process_list(input_list):
-    result = []
-    for sublist in input_list:
-        if len(sublist) == 2:
-            a, b = sublist
-            if b > a + 1:
-                result.append(int((a + b) / 2))
-            else:
-                result.append(a)
-        else:
-            # 处理子列表不是两个元素的情况
-            result.append(sublist[-1])
+    result = [0] * len(input_list)
+    for i, sublist in enumerate(input_list):
+        if len(sublist) != 2:
+            result[i] = sublist[-1]
+            continue
+        a, b = sublist
+        result[i] = int((a + b) / 2) if b > a + 1 else a
     return result
 
 
@@ -101,7 +110,7 @@ class PointKDTree:
             return Leaf(point=point, range=ranges,idx=indices[0])
         axis = depth % self.points.shape[1]
         while space_range[axis][0]+1 == space_range[axis][1]:
-            axis = (axis + 1) % self.points.shape[1]
+            axis = (depth + 1) % self.points.shape[1]
 
         sorted_indices = indices[np.argsort(self.points[indices, axis])]
         median_idx = len(sorted_indices) // 2
