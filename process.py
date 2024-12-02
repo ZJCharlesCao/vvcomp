@@ -97,8 +97,10 @@ def tensor_to_rgb48(tensor: np.ndarray, output_dir: str) -> List[str]:
         for vid in range(num_videos):
             if num_videos == 16:
                 output_path = os.path.join(output_dir, f"color_{vid}.rgb48le")
-            else:
+            elif num_videos == 3:
                 output_path = os.path.join(output_dir,f"geo_{vid}.rgb48le")
+            else:
+                output_path = os.path.join(output_dir, f"xyz.rgb48le")
             # 转置并重组数据 (num_frames, channels, height, width) -> (num_frames, height, width, channels)
             video_data = tensor[vid].transpose(0, 2, 3, 1)
             # 确保数据是小端序uint16

@@ -110,22 +110,18 @@ class PointKDTree:
             return Leaf(point=point, range=ranges,idx=indices[0])
         axis = depth % self.points.shape[1]
         while space_range[axis][0]+1 == space_range[axis][1]:
-            axis = (depth + 1) % self.points.shape[1]
-
-        sorted_indices = indices[np.argsort(self.points[indices, axis])]
-        median_idx = len(sorted_indices) // 2
-
-        left_indices = sorted_indices[:median_idx]
-        right_indices = sorted_indices[median_idx:]
-        threshold = self.points[sorted_indices[median_idx], axis]
+            axis = (axis + 1) % self.points.shape[1]
 
         left_range = copy.deepcopy(space_range)
         right_range = copy.deepcopy(space_range)
-        # th = int((threshold-self.point_range[axis][0])/(self.point_range[axis][1]-self.point_range[axis][0])*space_range[axis][1])
-        # left_range[axis][1] = th
-        # right_range[axis][0] = th
-        left_range[axis][1] = left_range[axis][0]+int((left_range[axis][1]-left_range[axis][0])/2)
-        right_range[axis][0] = right_range[axis][0]+int((right_range[axis][1]-right_range[axis][0])/2)
+        left_range[axis][1] = (left_range[axis][0] + left_range[axis][1]) // 2
+        right_range[axis][0] = (right_range[axis][0] + right_range[axis][1]) // 2
+
+        sorted_indices = indices[np.argsort(self.points[indices, axis])]
+        median_idx = max((left_range[axis][1]-left_range[axis][0])*len(sorted_indices) // (right_range[axis][1]-left_range[axis][0]),1)
+        left_indices = sorted_indices[:median_idx]
+        right_indices = sorted_indices[median_idx:]
+        threshold = self.points[sorted_indices[median_idx], axis]
 
         return Node(
             left=self._build(left_indices, left_range, depth + 1),
